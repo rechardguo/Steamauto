@@ -1,3 +1,4 @@
+import importlib
 import os
 import pickle
 import shutil
@@ -10,11 +11,6 @@ from ssl import SSLCertVerificationError
 import pyjson5 as json
 import requests
 from requests.exceptions import SSLError
-
-from plugins.BuffAutoAcceptOffer import BuffAutoAcceptOffer
-from plugins.BuffAutoOnSale import BuffAutoOnSale
-from plugins.SteamAutoAcceptOffer import SteamAutoAcceptOffer
-from plugins.UUAutoAcceptOffer import UUAutoAcceptOffer
 from steampy.client import SteamClient
 from steampy.exceptions import ApiException, CaptchaRequired, InvalidCredentials
 from utils.logger import handle_caught_exception
@@ -63,10 +59,10 @@ def handle_global_exception(exc_type, exc_value, exc_traceback):
     logger.error("由于出现致命错误，程序即将退出...")
     pause()
 
-
-def set_exit_code(code):
-    global exit_code
-    exit_code = code
+#
+# def set_exit_code(code):
+#     global exit_code
+#     exit_code = code
 
 
 def login_to_steam():
@@ -172,6 +168,7 @@ def login_to_steam():
     return steam_client
 
 
+
 def main():
     global config
     development_mode = False
@@ -180,24 +177,24 @@ def main():
     logger.info("若您觉得Steamauto好用, 请给予Star支持, 谢谢! \n")
     logger.info(f"当前版本: {current_version}")
     logger.info("正在检查更新...")
-    try:
-        response_json = requests.get("https://steamauto.jiajiaxd.com/versions", timeout=5)
-        data = response_json.json()
-        latest_version = data["latest_version"]["version"]
-        if compare_version(current_version, latest_version) == -1:
-            logger.info(f"检测到最新版本: {latest_version}")
-            changelog_to_output = str()
-            for version in data["history_versions"]:
-                if compare_version(current_version, version["version"]) == -1:
-                    changelog_to_output += f"版本: {version['version']}\n更新日志: {version['changelog']}\n\n"
-
-            logger.info(f"\n{changelog_to_output}")
-            logger.warning("当前版本不是最新版本,为了您的使用体验,请及时更新!")
-        else:
-            logger.info("当前版本已经是最新版本")
-    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
-        handle_caught_exception(e)
-        logger.info("检查更新失败, 跳过检查更新")
+    # try:
+    #     response_json = requests.get("https://steamauto.jiajiaxd.com/versions", timeout=5)
+    #     data = response_json.json()
+    #     latest_version = data["latest_version"]["version"]
+    #     if compare_version(current_version, latest_version) == -1:
+    #         logger.info(f"检测到最新版本: {latest_version}")
+    #         changelog_to_output = str()
+    #         for version in data["history_versions"]:
+    #             if compare_version(current_version, version["version"]) == -1:
+    #                 changelog_to_output += f"版本: {version['version']}\n更新日志: {version['changelog']}\n\n"
+    #
+    #         logger.info(f"\n{changelog_to_output}")
+    #         logger.warning("当前版本不是最新版本,为了您的使用体验,请及时更新!")
+    #     else:
+    #         logger.info("当前版本已经是最新版本")
+    # except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+    #     handle_caught_exception(e)
+    #     logger.info("检查更新失败, 跳过检查更新")
     logger.info("正在初始化...")
     first_run = False
     if not os.path.exists(CONFIG_FOLDER):
@@ -229,35 +226,18 @@ def main():
     if development_mode:
         logger.info("开发者模式已开启")
     steam_client = None
-    if not first_run:
-        steam_client = login_to_steam()
-        if steam_client is None:
-            return 1
+    # if not first_run:
+    #     steam_client = login_to_steam()
+    #     if steam_client is None:
+    #         return 1
     plugins_enabled = []
-    if (
-        "buff_auto_accept_offer" in config
-        and "enable" in config["buff_auto_accept_offer"]
-        and config["buff_auto_accept_offer"]["enable"]
-    ):
-        buff_auto_accept_offer = BuffAutoAcceptOffer(logger, steam_client, config)
-        plugins_enabled.append(buff_auto_accept_offer)
-    if "buff_auto_on_sale" in config and "enable" in config["buff_auto_on_sale"] and config["buff_auto_on_sale"]["enable"]:
-        buff_auto_on_sale = BuffAutoOnSale(logger, steam_client, config)
-        plugins_enabled.append(buff_auto_on_sale)
-    if (
-        "uu_auto_accept_offer" in config
-        and "enable" in config["uu_auto_accept_offer"]
-        and config["uu_auto_accept_offer"]["enable"]
-    ):
-        uu_auto_accept_offer = UUAutoAcceptOffer(logger, steam_client, config)
-        plugins_enabled.append(uu_auto_accept_offer)
-    if (
-        "steam_auto_accept_offer" in config
-        and "enable" in config["steam_auto_accept_offer"]
-        and config["steam_auto_accept_offer"]["enable"]
-    ):
-        steam_auto_accept_offer = SteamAutoAcceptOffer(logger, steam_client, config)
-        plugins_enabled.append(steam_auto_accept_offer)
+    plugins = config["plugins"]
+    for plugin in plugins:
+        clz_name = get_plugin_clz_name(plugin)
+        clz = getattr(importlib.import_module("plugins."+clz_name), clz_name)
+        c = clz(logger, steam_client, config)
+        plugins_enabled.append(c)
+
     if len(plugins_enabled) == 0:
         logger.error("未启用任何插件, 请检查" + CONFIG_FILE_PATH + "是否正确! ")
         pause()
@@ -270,25 +250,28 @@ def main():
         pause()
         return 0
     logger.info("初始化完成, 开始运行插件!")
-    print("\n")
+    # print("\n")
     time.sleep(0.1)
-    if len(plugins_enabled) == 1:
-        exit_code.set(plugins_enabled[0].exec())
-    else:
-        threads = []
-        for plugin in plugins_enabled:
-            threads.append(threading.Thread(target=plugin.exec))
-        for thread in threads:
-            thread.daemon = True
-            thread.start()
-        for thread in threads:
-            thread.join()
+    # if len(plugins_enabled) == 1:
+    #     exit_code.set(plugins_enabled[0].exec())
+    # else:
+    threads = []
+    for plugin in plugins_enabled:
+        threads.append(threading.Thread(target=plugin.exec))
+    for thread in threads:
+        thread.setDaemon(True)
+        thread.start()
+    for thread in threads:
+        thread.join()
     if exit_code.get() == 1:
         logger.warning("所有插件都已经退出！这不是一个正常情况，请检查配置文件.")
     logger.info("由于所有插件已经关闭,程序即将退出...")
-    pause()
-    sys.exit(exit_code.get())
 
+def get_plugin_clz_name(plugin):
+    plugin_info = plugin.split("_")
+    for i in range(len(plugin_info)):
+        plugin_info[i] = plugin_info[i].capitalize()
+    return "".join(plugin_info)
 
 def exit_app(signal_, frame):
     logger.info("正在退出...")
@@ -302,7 +285,7 @@ if __name__ == "__main__":
         os.mkdir(DEV_FILE_FOLDER)
     if not os.path.exists(SESSION_FOLDER):
         os.mkdir(SESSION_FOLDER)
-    exit_code.set(main())
+    main()
     if exit_code is not None:
         sys.exit(exit_code.get())
     else:
